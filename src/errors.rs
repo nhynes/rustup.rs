@@ -314,7 +314,7 @@ error_chain! {
         }
         AddingRequiredComponent(t: String, c: String) {
             description("required component cannot be added")
-            display("component {} was automatically added because it is required for toolchain '{}'",
+            display("component '{}' was automatically added because it is required for toolchain '{}'",
                     c, t)
         }
         ParsingSettings(e: toml::de::Error) {
@@ -322,7 +322,7 @@ error_chain! {
         }
         RemovingRequiredComponent(t: String, c: String) {
             description("required component cannot be removed")
-            display("component {} is required for toolchain '{}' and cannot be removed",
+            display("component '{}' is required for toolchain '{}' and cannot be removed",
                     c, t)
         }
         NoExeName {
@@ -335,6 +335,19 @@ error_chain! {
         BadPath(v: PathBuf) {
             description("bad path in tar")
             display("tar path '{}' is not supported", v.display())
+        }
+        UnknownChannel(t: String, c: String) {
+            description("toolchain does not contain channel")
+            display("toolchain '{}' does not contain channel '{}'", t, c)
+        }
+        RemovingRequiredChannel(t: String, c: String) {
+            description("required channel cannot be removed")
+            display("channel '{}' is required for toolchain '{}' and cannot be removed",
+                    c, t)
+        }
+        CorruptChannel(c: String) {
+            description("corrupt channel manifest")
+            display("channel manifest for '{}' is corrupt", c)
         }
     }
 }

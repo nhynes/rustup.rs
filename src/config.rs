@@ -39,6 +39,7 @@ pub struct Cfg {
     pub toolchains_dir: PathBuf,
     pub update_hash_dir: PathBuf,
     pub download_dir: PathBuf,
+    pub channels_dir: PathBuf,
     pub temp_cfg: temp::Cfg,
     pub gpg_key: Cow<'static, str>,
     pub env_override: Option<String>,
@@ -59,6 +60,7 @@ impl Cfg {
         let toolchains_dir = rustup_dir.join("toolchains");
         let update_hash_dir = rustup_dir.join("update-hashes");
         let download_dir = rustup_dir.join("downloads");
+        let channels_dir = rustup_dir.join("channels");
 
         // GPG key
         let gpg_key =
@@ -101,6 +103,7 @@ impl Cfg {
             toolchains_dir,
             update_hash_dir,
             download_dir,
+            channels_dir,
             temp_cfg,
             gpg_key,
             notify_handler,

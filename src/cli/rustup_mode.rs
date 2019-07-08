@@ -68,6 +68,13 @@ pub fn main() -> Result<()> {
             ("remove", Some(m)) => component_remove(cfg, m)?,
             (_, _) => unreachable!(),
         },
+        ("channel", Some(c)) => match c.subcommand() {
+            ("list", Some(m)) => handle_epipe(channel_list(cfg, m))?,
+            ("add", Some(m)) => channel_add(cfg, m)?,
+            ("update", Some(m)) => channel_update(cfg, m)?,
+            ("remove", Some(m)) => channel_remove(cfg, m)?,
+            (_, _) => unreachable!(),
+        },
         ("override", Some(c)) => match c.subcommand() {
             ("list", Some(_)) => handle_epipe(common::list_overrides(cfg))?,
             ("set", Some(m)) => override_add(cfg, m)?,
@@ -349,6 +356,56 @@ pub fn cli() -> App<'static, 'static> {
                         )
                         .arg(Arg::with_name("target").long("target").takes_value(true)),
                 ),
+        )
+        .subcommand(
+            SubCommand::with_name("channel")
+                .about("Modify custom component repositories")
+                .setting(AppSettings::VersionlessSubcommands)
+                .setting(AppSettings::DeriveDisplayOrder)
+                .setting(AppSettings::SubcommandRequiredElseHelp)
+                .subcommand(
+                    SubCommand::with_name("list")
+                        .about("List added component channels")
+                        .arg(
+                            Arg::with_name("toolchain")
+                                .help(TOOLCHAIN_ARG_HELP)
+                                .long("toolchain")
+                                .takes_value(true),
+                        ),
+                )
+                .subcommand(
+                    SubCommand::with_name("add")
+                        .about("Add a component channel by URL")
+                        .arg(Arg::with_name("channel_url").required(true))
+                        .arg(
+                            Arg::with_name("toolchain")
+                                .help(TOOLCHAIN_ARG_HELP)
+                                .long("toolchain")
+                                .takes_value(true),
+                        )
+                )
+                .subcommand(
+                    SubCommand::with_name("update")
+                        .about("Update an installed component channel")
+                        .arg(Arg::with_name("channel").required(true).multiple(true))
+                        .arg(
+                            Arg::with_name("toolchain")
+                                .help(TOOLCHAIN_ARG_HELP)
+                                .long("toolchain")
+                                .takes_value(true),
+                        )
+                )
+                .subcommand(
+                    SubCommand::with_name("remove")
+                        .about("Remove a component channel")
+                        .arg(Arg::with_name("channel").required(true).multiple(true))
+                        .arg(
+                            Arg::with_name("toolchain")
+                                .help(TOOLCHAIN_ARG_HELP)
+                                .long("toolchain")
+                                .takes_value(true),
+                        )
+                )
         )
         .subcommand(
             SubCommand::with_name("override")
@@ -964,6 +1021,36 @@ fn component_remove(cfg: &Cfg, m: &ArgMatches<'_>) -> Result<()> {
         toolchain.remove_component(new_component)?;
     }
 
+    Ok(())
+}
+
+fn channel_list(cfg: &Cfg, m: &ArgMatches<'_>) -> Result<()> {
+    let toolchain = explicit_or_dir_toolchain(cfg, m)?;
+    for channel in toolchain.list_channels()? {
+        println!("{}", channel);
+    }
+    Ok(())
+}
+
+fn channel_add(cfg: &Cfg, m: &ArgMatches<'_>) -> Result<()> {
+    let toolchain = explicit_or_dir_toolchain(cfg, m)?;
+    toolchain.add_channel(m.value_of("channel_url").expect(""))?;
+    Ok(())
+}
+
+fn channel_update(cfg: &Cfg, m: &ArgMatches<'_>) -> Result<()> {
+    let toolchain = explicit_or_dir_toolchain(cfg, m)?;
+    for channel in m.values_of("channel").expect("") {
+        toolchain.update_channel(channel)?;
+    }
+    Ok(())
+}
+
+fn channel_remove(cfg: &Cfg, m: &ArgMatches<'_>) -> Result<()> {
+    let toolchain = explicit_or_dir_toolchain(cfg, m)?;
+    for channel in m.values_of("channel").expect("") {
+        toolchain.remove_channel(channel)?;
+    }
     Ok(())
 }
 

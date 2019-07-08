@@ -1,7 +1,7 @@
 use crate::dist::download::DownloadCfg;
 use crate::dist::manifest::Component;
 use crate::dist::manifest::Manifest as ManifestV2;
-use crate::dist::manifestation::{Changes, Manifestation, UpdateStatus};
+use crate::dist::manifestation::{Changes, ChannelChanges, Manifestation, UpdateStatus};
 use crate::dist::notifications::*;
 use crate::dist::prefix::InstallPrefix;
 use crate::dist::temp;
@@ -574,6 +574,9 @@ pub fn update_from_dist_<'a>(
                 &m.date,
                 m.get_rust_version().ok(),
             ));
+
+            let channel_changes = calculate_channel_updates(&m, &hash)?;
+
             return match manifestation.update(
                 &m,
                 changes,
@@ -682,4 +685,24 @@ fn dl_v1_manifest<'a>(download: DownloadCfg<'a>, toolchain: &ToolchainDesc) -> R
         .collect();
 
     Ok(urls)
+}
+
+fn calculate_channel_updates(new_manifest: &ManifestV2, hash: &str) -> Result<ChannelChanges> {
+    let extra_manifest_files = prefix.extra_manifest_files()?;
+    let mut update_channels = Vec::with_capacity(extra_manifest_files.len());
+    let mut remove_channels = Vec::new();
+    for path in extra_manifest_files {
+        let manifest_str = utils::read_file("manifest", &path)?;
+        let manifest = Manifest::parse(&manifest_str)?;
+        let mut update_url = utils::parse_url(&manifest.update_url.unwrap())?;
+        if update_url.scheme() != "https" {
+            remove_channels.push(manifest);
+        } else {
+            update_channels.push(manifest);
+        }
+    }
+            let channel_changes = ChannelChanges {
+                add_channels,
+                remove_channels,
+            };
 }

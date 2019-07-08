@@ -15,6 +15,8 @@ use std::path::Path;
 
 pub const DIST_MANIFEST: &str = "multirust-channel-manifest.toml";
 pub const CONFIG_FILE: &str = "multirust-config.toml";
+pub const CHANNEL_MANIFEST_SUFFIX: &str = "-channel-manifest.toml";
+pub const DIST_CHANNEL: &str = "multirust";
 
 enum Format {
     Gz,
@@ -31,6 +33,12 @@ pub struct Manifestation {
 pub struct Changes {
     pub add_extensions: Vec<Component>,
     pub remove_extensions: Vec<Component>,
+}
+
+#[derive(Debug)]
+pub struct ChannelChanges {
+    pub add_channels: Vec<Manifest>,
+    pub remove_channels: Vec<Manifest>,
 }
 
 impl Changes {
@@ -107,6 +115,7 @@ impl Manifestation {
     pub fn update(
         &self,
         new_manifest: &Manifest,
+        channel_changes: ChannelChanges,
         changes: Changes,
         force_update: bool,
         download_cfg: &DownloadCfg<'_>,
@@ -331,6 +340,18 @@ impl Manifestation {
         } else {
             Ok(None)
         }
+    }
+
+    pub fn load_all_manifests(&self) -> Result<Option<Manifest>> {
+        let mut manifest = match self.load_manifest()? {
+            Some(manifest) => manifest,
+            None => return Ok(None)
+        };
+        for manifest_path in self.installation.prefix().extra_manifest_files()? {
+            let manifest_str = utils::read_file("added channel manifest", &manifest_path)?;
+            manifest.merge(Manifest::parse(&manifest_str)?)?;
+        }
+        Ok(Some(manifest))
     }
 
     /// Installation using the legacy v1 manifest format

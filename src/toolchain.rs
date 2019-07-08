@@ -4,7 +4,7 @@ use crate::dist::dist::ToolchainDesc;
 use crate::dist::download::DownloadCfg;
 use crate::dist::manifest::Component;
 use crate::dist::manifest::Manifest;
-use crate::dist::manifestation::{Changes, Manifestation};
+use crate::dist::manifestation::{Changes, Manifestation, CHANNEL_MANIFEST_SUFFIX, DIST_CHANNEL};
 use crate::dist::prefix::InstallPrefix;
 use crate::env_var;
 use crate::errors::*;
@@ -467,6 +467,105 @@ impl<'a> Toolchain<'a> {
         })
     }
 
+    pub fn list_channels(&self) -> Result<Vec<String>> {
+        if !self.exists() {
+            return Err(ErrorKind::ToolchainNotInstalled(self.name.to_owned()).into());
+        }
+
+        let prefix = InstallPrefix::from(self.path.to_owned());
+
+        let mut channels: Vec<String> = prefix
+            .extra_manifest_files()?
+            .iter()
+            .map(|manifest_path| {
+                let fname = manifest_path.file_name().unwrap().to_str().unwrap();
+                fname[..(fname.len() - CHANNEL_MANIFEST_SUFFIX.len())].to_string()
+            })
+            .collect();
+        channels.sort();
+
+        Ok(channels)
+    }
+
+    pub fn add_channel(&self, channel_url: &str) -> Result<()> {
+        self.sync_channel_from_url(channel_url, false /* overwrite */)
+    }
+
+    pub fn update_channel(&self, channel: &str) -> Result<()> {
+        if channel == DIST_CHANNEL {
+            return Err(
+                ErrorKind::UnknownChannel(self.name.to_string(), channel.to_string()).into(),
+            );
+        }
+        let prefix = InstallPrefix::from(self.path.to_owned());
+        let manifest_path = prefix
+            .manifest_dir()
+            .join(format!("{}{}", channel, CHANNEL_MANIFEST_SUFFIX));
+        if !manifest_path.is_file() {
+            return Err(
+                ErrorKind::UnknownChannel(self.name.to_string(), channel.to_string()).into(),
+            );
+        }
+        let channel_manifest = Manifest::parse(&std::fs::read_to_string(&*manifest_path)?)?;
+
+        self.sync_channel_from_url(
+            &channel_manifest.update_url.unwrap_or_default(),
+            true, /* overwrite */
+        )
+    }
+
+    fn sync_channel_from_url(&self, url: &str, overwrite: bool) -> Result<()> {
+        let url = utils::parse_url(url)?;
+        let manifest_tempfile = self.cfg.temp_cfg.new_file_with_ext("", ".toml")?;
+        utils::download_file(&url, &manifest_tempfile, None, &|n| {
+            (self.cfg.notify_handler)(n.into())
+        })?;
+
+        let channel_manifest =
+            Manifest::parse_3rdparty(&utils::read_file("channel manifest", &*manifest_tempfile)?)?;
+        let channel = channel_manifest.channel.as_ref().unwrap();
+
+        let prefix = InstallPrefix::from(self.path.to_owned());
+        let manifest_path = prefix
+            .manifest_dir()
+            .join(format!("{}{}", channel, CHANNEL_MANIFEST_SUFFIX));
+
+        if !overwrite && manifest_path.is_file() {
+            (self.dist_handler)(crate::dist::Notification::ChannelAlreadyAdded(channel));
+        } else {
+            (self.dist_handler)(crate::dist::Notification::UpdatedChannel(channel));
+            utils::copy_file(&*manifest_tempfile, &manifest_path)?
+        }
+
+        Ok(())
+    }
+
+    pub fn remove_channel(&self, channel: &str) -> Result<()> {
+        if channel == "multirust" {
+            return Err(ErrorKind::RemovingRequiredChannel(
+                self.name.to_string(),
+                channel.to_string(),
+            )
+            .into());
+        }
+
+        if !self.exists() {
+            return Err(ErrorKind::ToolchainNotInstalled(self.name.to_owned()).into());
+        }
+
+        let prefix = InstallPrefix::from(self.path.to_owned());
+
+        let mf_file_name = format!("{}-channel-manifest.toml", channel);
+        let mf_path = prefix.manifest_dir().join(&mf_file_name);
+        if mf_file_name.contains(std::path::MAIN_SEPARATOR) || !mf_path.is_file() {
+            return Err(
+                ErrorKind::UnknownChannel(self.name.to_string(), channel.to_string()).into(),
+            );
+        }
+        (self.dist_handler)(crate::dist::Notification::RemovingChannel(channel));
+        Ok(std::fs::remove_file(mf_path)?)
+    }
+
     pub fn list_components(&self) -> Result<Vec<ComponentStatus>> {
         if !self.exists() {
             return Err(ErrorKind::ToolchainNotInstalled(self.name.to_owned()).into());
@@ -658,7 +757,7 @@ impl<'a> Toolchain<'a> {
         let prefix = InstallPrefix::from(self.path.to_owned());
         let manifestation = Manifestation::open(prefix, toolchain.target.clone())?;
 
-        if let Some(manifest) = manifestation.load_manifest()? {
+        if let Some(manifest) = manifestation.load_all_manifests()? {
             // Rename the component if necessary.
             if let Some(c) = manifest.rename_component(&component) {
                 component = c;
@@ -732,7 +831,7 @@ impl<'a> Toolchain<'a> {
         let prefix = InstallPrefix::from(self.path.to_owned());
         let manifestation = Manifestation::open(prefix, toolchain.target.clone())?;
 
-        if let Some(manifest) = manifestation.load_manifest()? {
+        if let Some(manifest) = manifestation.load_all_manifests()? {
             // Rename the component if necessary.
             if let Some(c) = manifest.rename_component(&component) {
                 component = c;

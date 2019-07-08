@@ -10,11 +10,12 @@
 //!
 //! See tests/channel-rust-nightly-example.toml for an example.
 
+use crate::dist::manifestation::DIST_CHANNEL;
 use crate::errors::*;
 use crate::utils::toml_utils::*;
 
 use crate::dist::dist::TargetTriple;
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 pub const SUPPORTED_MANIFEST_VERSIONS: [&str; 1] = ["2"];
 pub const DEFAULT_MANIFEST_VERSION: &str = "2";
@@ -26,6 +27,8 @@ pub struct Manifest {
     pub packages: HashMap<String, Package>,
     pub renames: HashMap<String, String>,
     pub reverse_renames: HashMap<String, String>,
+    pub channel: Option<String>,
+    pub update_url: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,6 +72,20 @@ impl Manifest {
 
         Ok(manifest)
     }
+
+    pub fn parse_3rdparty(data: &str) -> Result<Self> {
+        let manifest = Self::parse(data)?;
+        match &manifest.channel {
+            Some(channel) if channel != DIST_CHANNEL => (),
+            Some(channel) => return Err(ErrorKind::CorruptChannel(channel.to_string()).into()),
+            _ => return Err(format!("missing key: 'channel'").into()),
+        }
+        if manifest.update_url.is_none() {
+            return Err(format!("missing key: 'update-url'").into());
+        }
+        Ok(manifest)
+    }
+
     pub fn stringify(self) -> String {
         toml::Value::Table(self.into_toml()).to_string()
     }
@@ -85,6 +102,8 @@ impl Manifest {
             packages: Self::table_to_packages(&mut table, path)?,
             renames,
             reverse_renames,
+            channel: get_string(&mut table, "channel", path).ok(),
+            update_url: get_string(&mut table, "update-url", path).ok(),
         })
     }
     pub fn into_toml(self) -> toml::value::Table {
@@ -213,6 +232,33 @@ impl Manifest {
             c
         })
     }
+
+    pub fn merge(&mut self, mut other: Self) -> Result<()> {
+        merge_maps(&mut self.renames, other.renames);
+        merge_maps(&mut self.reverse_renames, other.reverse_renames);
+
+        for (pkg_name, pkg) in other.packages.drain() {
+            match self.packages.entry(pkg_name) {
+                Entry::Vacant(e) => {
+                    e.insert(pkg);
+                }
+                Entry::Occupied(mut e) => {
+                    let existing = e.get_mut();
+                    if existing.version != pkg.version {
+                        continue;
+                    }
+                    existing.targets.merge(pkg.targets)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn merge_maps<K: std::cmp::Eq + std::hash::Hash, V>(a: &mut HashMap<K, V>, mut b: HashMap<K, V>) {
+    for (k, v) in b.drain() {
+        a.entry(k).or_insert(v);
+    }
 }
 
 impl Package {
@@ -295,6 +341,28 @@ impl PackageTargets {
             PackageTargets::Targeted(tpkgs) => tpkgs.get_mut(target),
         }
     }
+    pub fn merge(&mut self, other: Self) -> Result<()> {
+        use PackageTargets::*;
+        if let Wildcard(self_tpkg) = self {
+            if let Wildcard(other_tpkg) = other {
+                self_tpkg.merge(other_tpkg)?;
+            }
+        } else if let Targeted(self_targ_tpkgs) = self {
+            if let Targeted(mut other_targ_tpkgs) = other {
+                for (other_targ, other_tpkg) in other_targ_tpkgs.drain() {
+                    match self_targ_tpkgs.entry(other_targ) {
+                        Entry::Vacant(e) => {
+                            e.insert(other_tpkg);
+                        }
+                        Entry::Occupied(mut self_tpkg) => {
+                            self_tpkg.get_mut().merge(other_tpkg)?;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl TargetedPackage {
@@ -373,6 +441,12 @@ impl TargetedPackage {
             result.push(toml::Value::Table(v.into_toml()));
         }
         result
+    }
+
+    pub fn merge(&mut self, mut other: Self) -> Result<()> {
+        self.components.append(&mut other.components);
+        self.extensions.append(&mut other.extensions);
+        Ok(())
     }
 }
 

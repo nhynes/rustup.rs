@@ -26,6 +26,9 @@ pub enum Notification<'a> {
     InstallingComponent(&'a str, &'a TargetTriple, Option<&'a TargetTriple>),
     RemovingComponent(&'a str, &'a TargetTriple, Option<&'a TargetTriple>),
     RemovingOldComponent(&'a str, &'a TargetTriple, Option<&'a TargetTriple>),
+    UpdatedChannel(&'a str),
+    ChannelAlreadyAdded(&'a str),
+    RemovingChannel(&'a str),
     DownloadingManifest(&'a str),
     DownloadedManifest(&'a str, Option<&'a str>),
     DownloadingLegacyManifest,
@@ -62,6 +65,9 @@ impl<'a> Notification<'a> {
             | InstallingComponent(_, _, _)
             | RemovingComponent(_, _, _)
             | RemovingOldComponent(_, _, _)
+            | UpdatedChannel(_)
+            | ChannelAlreadyAdded(_)
+            | RemovingChannel(_)
             | ComponentAlreadyInstalled(_)
             | ManifestChecksumFailedHack
             | RollingBack
@@ -135,6 +141,9 @@ impl<'a> Display for Notification<'a> {
                     )
                 }
             }
+            ChannelAlreadyAdded(c) => write!(f, "channel '{}' is up to date", c),
+            UpdatedChannel(c) => write!(f, "latest update on channel '{}'", c),
+            RemovingChannel(c) => write!(f, "removing channel '{}'", c),
             DownloadingManifest(t) => write!(f, "syncing channel updates for '{}'", t),
             DownloadedManifest(date, Some(version)) => {
                 write!(f, "latest update on {}, rust version {}", date, version)
